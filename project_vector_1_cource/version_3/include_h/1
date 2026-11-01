@@ -1,0 +1,205 @@
+#pragma once
+
+#include <memory> // ALLOCATOR 
+#include <algorithm> // copy sort swap
+#include <initializer_list>
+#include <stdexcept> 
+#include <utility> // move swap 
+
+// ---------------------------------------------------------------
+// vector_base: владеет ТОЛЬКО памятью, не знает об элементах
+// ---------------------------------------------------------------
+template<typename T, typename A>
+struct vector_base {
+    A    alloc;
+    T*   elem;
+    int  sz;
+    int  space;
+
+    vector_base(const A& a, int n)
+        : alloc{a}, elem{a.allocate(n)}, sz{n}, space{n}
+    {}
+
+    vector_base(vector_base&& other) noexcept
+        : alloc{std::move(other.alloc)}
+        , elem{other.elem}
+        , sz{other.sz}
+        , space{other.space}
+    {
+        other.elem  = nullptr;
+        other.sz    = 0;
+        other.space = 0;
+    }
+
+    vector_base& operator=(vector_base&& other) noexcept {
+        if (this != &other) {
+            alloc.deallocate(elem, space);
+            alloc   = std::move(other.alloc);
+            elem    = other.elem;
+            sz      = other.sz;
+            space   = other.space;
+            other.elem  = nullptr;
+            other.sz    = 0;
+            other.space = 0;
+        }
+        return *this;
+    }
+
+    vector_base(const vector_base&)            = delete;
+    vector_base& operator=(const vector_base&) = delete;
+
+    ~vector_base() {
+        alloc.deallocate(elem, space);
+    }
+};
+
+// ---------------------------------------------------------------
+// vector<T,A>: владеет ЭЛЕМЕНТАМИ, наследует vector_base
+// ---------------------------------------------------------------
+template<typename T, typename A = std::allocator<T>>
+class vector : private vector_base<T, A> {
+    using base   = vector_base<T, A>;
+    using traits = std::allocator_traits<A>;
+
+public:
+    vector()
+        : base(A(), 0)
+    {}
+
+    explicit vector(int s)
+        : base(A(), s)
+    {
+        std::uninitialized_fill(this->elem, this->elem + s, T());
+    }
+
+    vector(std::initializer_list<T> lst)
+        : base(A(), static_cast<int>(lst.size()))
+    {
+        std::uninitialized_copy(lst.begin(), lst.end(), this->elem);
+    }
+
+    vector(const vector& a)
+        : base(a.alloc, a.sz)
+    {
+        std::uninitialized_copy(a.elem, a.elem + a.sz, this->elem);
+    }
+
+    vector(vector&& a) noexcept
+        : base(std::move(a))
+    {}
+
+    ~vector() {
+        for (int i = 0; i < this->sz; ++i)
+            traits::destroy(this->alloc, &this->elem[i]);
+        // затем автоматически вызывается ~vector_base()
+    }
+
+    vector& operator=(const vector& a);
+    vector& operator=(vector&& a) noexcept;
+
+    T&       operator[](int n)       { return this->elem[n]; }
+    const T& operator[](int n) const { return this->elem[n]; }
+
+    T&       at(int n);
+    const T& at(int n) const;
+
+    int size()     const { return this->sz;    }
+    int capacity() const { return this->space; }
+
+    void reserve(int newalloc);
+    void resize(int newsize, T val = T());
+    void push_back(const T& val);
+};
+
+// ---------------------------------------------------------------
+// Реализация
+// ---------------------------------------------------------------
+
+template<typename T, typename A>
+vector<T,A>& vector<T,A>::operator=(const vector& a) {
+    if (this == &a) return *this;
+
+    if (a.sz <= this->space) {
+        // Места хватает — переиспользуем буфер
+        int i = 0;
+        for (; i < a.sz; ++i)
+            this->elem[i] = a.elem[i];
+        for (; i < this->sz; ++i)
+            traits::destroy(this->alloc, &this->elem[i]);
+        this->sz = a.sz;
+        return *this;
+    }
+
+    // Места не хватает — выделяем новую память
+    base b(this->alloc, a.sz);
+    std::uninitialized_copy(a.elem, a.elem + a.sz, b.elem);
+
+    for (int i = 0; i < this->sz; ++i)
+        traits::destroy(this->alloc, &this->elem[i]);
+
+    std::swap(static_cast<base&>(*this), b);
+    // b теперь владеет старым буфером; ~base его освободит
+    return *this;
+}
+
+template<typename T, typename A>
+vector<T,A>& vector<T,A>::operator=(vector&& a) noexcept {
+    if (this == &a) return *this;
+
+    for (int i = 0; i < this->sz; ++i)
+        traits::destroy(this->alloc, &this->elem[i]);
+
+    static_cast<base&>(*this) = std::move(static_cast<base&>(a));
+    return *this;
+}
+
+template<typename T, typename A>
+T& vector<T,A>::at(int n) {
+    if (n < 0 || this->sz <= n)
+        throw std::out_of_range{"vector::at: index out of range"};
+    return this->elem[n];
+}
+
+template<typename T, typename A>
+const T& vector<T,A>::at(int n) const {
+    if (n < 0 || this->sz <= n)
+        throw std::out_of_range{"vector::at: index out of range"};
+    return this->elem[n];
+}
+
+template<typename T, typename A>
+void vector<T,A>::reserve(int newalloc) {
+    if (newalloc <= this->space) return;
+
+    base b(this->alloc, newalloc);
+    std::uninitialized_copy(this->elem, this->elem + this->sz, b.elem);
+
+    for (int i = 0; i < this->sz; ++i)
+        traits::destroy(this->alloc, &this->elem[i]);
+
+    int old_sz = this->sz;
+    b.sz = old_sz;                                   // (см. примечание 1)
+    std::swap(static_cast<base&>(*this), b);
+    // b теперь владеет старым буфером; ~base его освободит
+}
+
+template<typename T, typename A>
+void vector<T,A>::resize(int newsize, T val) {
+    reserve(newsize);
+
+    for (int i = this->sz; i < newsize; ++i)
+        traits::construct(this->alloc, &this->elem[i], val);
+
+    for (int i = newsize; i < this->sz; ++i)
+        traits::destroy(this->alloc, &this->elem[i]);
+
+    this->sz = newsize;
+}
+
+template<typename T, typename A>
+void vector<T,A>::push_back(const T& val) {
+    if (this->space == this->sz)
+        reserve(this->sz == 0 ? 8 : 2 * this->sz);
+    traits::construct(this->alloc, &this->elem[this->sz], val);
+    ++this->sz;
+}
