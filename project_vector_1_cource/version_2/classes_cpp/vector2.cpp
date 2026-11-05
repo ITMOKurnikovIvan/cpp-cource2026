@@ -1,8 +1,8 @@
 #include "../include_h/vector2.h"
 
-vector::vector(): sz(1), elem(new double(0.0)) {} 
+vector::vector(): sz(0), elem(nullptr) {} 
 
-explicit vector::vector(int size): sz(size), elem(new double[size]) 
+vector::vector(int size): sz(size), elem(new double[size]) 
 {
     for (int i = 0; i < sz; ++i)
     {
@@ -17,7 +17,7 @@ vector::vector(std::initializer_list<double> lst): sz(lst.size()), elem(new doub
 
 vector::vector(const vector& other): sz(other.sz), elem(new double[other.sz])
 {
-    std::copy(other.elem, other.elem + sz, elem);
+    std::copy(other.elem, other.elem + other.sz, elem);
 }
 
 vector::vector( vector&& other ): sz(other.sz), elem(other.elem)
@@ -35,13 +35,12 @@ vector::~vector()
 
 vector& vector::operator=(const vector& other)
 {
-    if (this != &other)
-    {
-        delete[] elem;
-        sz = other.sz;
-        elem = new double[sz];
-        std::copy(other.elem, other.elem + sz, elem);
-    }
+    double* p = new double[other.sz];
+    std::copy(other.elem, other.elem + other.sz, p);
+
+    delete[] elem;
+    elem = p;
+    sz = other.sz;
 
     return *this;
 }
@@ -59,7 +58,17 @@ vector& vector::operator=(vector&& other)
     return *this;
 }
 
-int vector::size()
+double& vector::operator[](int n)
+{
+    return elem[n];
+}
+
+const double& vector::operator[](int n) const 
+{
+    return elem[n];
+}
+
+int vector::size() const 
 {
     return sz;
 }
@@ -71,4 +80,14 @@ void vector::set(int n, double v)
 double vector::get(int n) const 
 {
     return elem[n];
+}
+
+double* vector::begin() const
+{
+    return elem;    
+}
+
+double* vector::end() const
+{
+    return elem + size();    
 }

@@ -12,4 +12,6 @@ int main(void)
         v.set(i, 1.2 * i);
         std::cout << "v[" << i << "] = " << v.get(i) << std::endl;
     } 
+
+    v.set(size + 2, 15);
 }

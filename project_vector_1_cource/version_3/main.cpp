@@ -1,4 +1,5 @@
     #include "include_h/vector3.h"
+#include <type_traits>
     template<typename T>
     struct functor
     {

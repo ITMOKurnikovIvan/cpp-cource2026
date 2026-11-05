@@ -16,7 +16,11 @@ public:
     ~vector();
     vector& operator=(const vector& other);
     vector& operator=(vector&& other);
-    int size();
+    double& operator[](int n); // operator[] не проверяет границ
+    const double& operator[](int n) const; // не имеет право записывать , только чтение
+    int size() const ;
     double get(int n) const ;
     void set(int n, double v);
+    double* begin() const;
+    double* end() const;
 };
